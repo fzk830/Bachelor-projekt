@@ -1,0 +1,59 @@
+%\documentclass{DIKU-article}[2006/05/09]
+\documentclass[a4paper]{article}
+
+%% Language and font encodings
+\usepackage[english]{babel}
+\usepackage[utf8x]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{courier}
+
+%% Sets page size and margins
+\usepackage[a4paper,top=3cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+%\titlehead{Bachelorprojekt memory forensics}
+%\authorhead{Kristian Hougaard Olsen}
+
+
+\author{Kristian Hougaard Olsen \inst{1}}
+
+
+\begin{document}
+
+\subsection*{Abstract}
+%
+In this report I will look at processes running on a windows system and how you might detect potential malicious ones that are running. \\
+%
+In the first part of the report I’m going to start of describing the way processes are structured on a windows system. Afterwards I’ll focus more on the Virtual Address Descriptors (VAD) part and how this can be used to detect processes that are trying to hide themselves. \\
+%
+Further description? \\
+%
+For the second part I’ll be looking at different setups of windows 7 (32 bit) running on virtual machines. I’ll start off by looking at a clean installation running applications that you would normally see on a working PC. Then I’m going to investigate the other machine which will have been infected with some malicious process, using the (things) described in the first part. \\
+%
+Describe results \\
+
+
+
+\newpage
+\section{Processes on windows}
+%
+Some intro \\ \\
+%
+On Windows a process consists of multiple different parts: Threads, Handle tables, private virtual memory space(organized by Virtual Address Descriptors - VADs). These are all connected by a structure called \texttt{\_EPROCESS}, which in turn also contains a large amount of different entries of various types. Some of those can be seen in the figure below. \\ \\
+% *Picture of datastructure, containing some of the important members(?).
+Looking at the members of the \texttt{\_EPROCESS} structure, we can gather a lot of information about recent activities on the system. For now I will be focusing on a few, which are mentioned below, with the main focus of the report being on the last two. \\ \\
+%
+For a starter we can see when a process was started and when it finished (or if it is still running) by looking at \texttt{CreateTime} and \texttt{ExitTime} respectively. \\ \\
+%
+We can also see the (unique) ID of the process and the ID of the parent by looking at \texttt{UniqueProcessId} and \texttt{InheritedFromUniqueProcessId}. We can use this information to try and determine why certain processes were started, and in the case of something malicious we might be able to spot it due to an unlikely relationship. \\\\
+%
+The \texttt{\_LIST\_ENTRY} member structure \texttt{ActiveProcessLinks} creates a chain of process objects, by linking the current process with the previous and next. This way the operating system and other applications/tools can traverse the list in order to see what processes are currently running.  
+One problem with this member (and other parts) is that operating system does not depend on content being correct in order to run correctly. That means intruders can edit the entries such that a process will not be linked to, thus hiding it from the user. \\\\
+%
+\texttt{\_MM\_AVL\_TABLE} member structure \texttt{VadRoot} points to the root node in the VAD tree, which I will describe in greater details in the next section. The main reason for focusing on this member is that unlike \texttt{ActiveProcessLinks} it cannot be manipulated to hide processes. \\
+
+
+\section{VAD}
+
+
+
+\end{document}
