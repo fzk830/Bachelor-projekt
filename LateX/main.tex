@@ -1,4 +1,4 @@
-%\documentclass{DIKU-article}[2006/05/09]
+﻿%\documentclass{DIKU-article}[2006/05/09]
 \documentclass[a4paper]{article}
 
 %% Language and font encodings
@@ -25,11 +25,12 @@ In this report I will look at processes running on a windows system and how you 
 %
 In the first part of the report I’m going to start of describing the way processes are structured on a windows system. Afterwards I’ll focus more on the Virtual Address Descriptors (VAD) part and how this can be used to detect processes that are trying to hide themselves. \\
 %
-Further description? \\
+% Further description? \\
 %
 For the second part I’ll be looking at different setups of windows 7 (32 bit) running on virtual machines. I’ll start off by looking at a clean installation running applications that you would normally see on a working PC. Then I’m going to investigate the other machine which will have been infected with some malicious process, using the (things) described in the first part. \\
 %
-Describe results \\
+% Describe results \\
+% 
 
 
 
@@ -38,13 +39,13 @@ Describe results \\
 %
 Some intro \\ \\
 %
-On Windows a process consists of multiple different parts: Threads, Handle tables, private virtual memory space(organized by Virtual Address Descriptors - VADs). These are all connected by a structure called \texttt{\_EPROCESS}, which in turn also contains a large amount of different entries of various types. Some of those can be seen in the figure below. \\ \\
+On Windows a process consists of multiple different parts: Threads, Handle tables, private virtual memory space (organized by Virtual Address Descriptors - VADs). These are all connected by a structure called \texttt{\_EPROCESS}, which in turn also contains a large amount of different entries of various types. Some of those can be seen in the figure below. \\ \\
 % *Picture of datastructure, containing some of the important members(?).
 Looking at the members of the \texttt{\_EPROCESS} structure, we can gather a lot of information about recent activities on the system. For now I will be focusing on a few, which are mentioned below, with the main focus of the report being on the last two. \\ \\
 %
 For a starter we can see when a process was started and when it finished (or if it is still running) by looking at \texttt{CreateTime} and \texttt{ExitTime} respectively. \\ \\
 %
-We can also see the (unique) ID of the process and the ID of the parent by looking at \texttt{UniqueProcessId} and \texttt{InheritedFromUniqueProcessId}. We can use this information to try and determine why certain processes were started, and in the case of something malicious we might be able to spot it due to an unlikely relationship. \\\\
+We can also see the (unique) ID of the process and the ID of the parent by looking at \\ \texttt{UniqueProcessId} and \texttt{InheritedFromUniqueProcessId}. We can use this information to try and determine why certain processes were started, and in the case of something malicious we might be able to spot it due to an unlikely relationship. \\\\
 %
 The \texttt{\_LIST\_ENTRY} member structure \texttt{ActiveProcessLinks} creates a chain of process objects, by linking the current process with the previous and next. This way the operating system and other applications/tools can traverse the list in order to see what processes are currently running.  
 One problem with this member (and other parts) is that operating system does not depend on content being correct in order to run correctly. That means intruders can edit the entries such that a process will not be linked to, thus hiding it from the user. \\\\
@@ -53,6 +54,31 @@ One problem with this member (and other parts) is that operating system does not
 
 
 \section{VAD}
+
+% Looking at the structure type of the VAD tree, you can derive the purpose of the memory range.
+% win 7 64 bit. short, regular and long. 199-201. short doesn't have a subsection so can't contain file. Likely that injected code will use a short nodes since it doesn't need a file on the disk.
+
+% The "Tag" member can be used for this. It has a negative offset, which points to the "PoolTag" member of the "_POOL_HEADER". This exists in memory directly before the node. More in chapter 5.
+
+% the u_ members of the 3 different NODE structures are flags that contains characteristics about the memory range.
+% CommitCharge - how many pages are commited in the region of the VAD note.
+% MemCommit - Was memory commited right away or reserved? Historically malware commits all pages up front.
+% Protection - what acces is allowed for the memory region. Execute, read, write, no access, copy (?). ONLY INITIAL PROTECTION, so can be changed later
+% PrivateMemory - control bit that tells whether data in the region can be shared or inherited. If this is set the region cannot contain the following: Mapped files, named shared memory or copy-on-write DLLs (?).
+
+% VAD intro
+% VAD tags
+% VAD flags
+
+As described earlier the VAD tree is used to describe the layout of a process' memory space. This contains the executable of the process, the list of DLLs/shared libraries, the stacks, heaps, and regions containing a wide variety of data such as user input and data structures relevant to the application (such as internet history logs). \\
+The VAD tree is a self balancing binary tree, where each node represents a range in process memory. The operating system is responsible for creating and maintaining the VAD tree of a process. Because of this the OS is able to add data/information that isn't important to the CPU, such as the names of memory-mapped files, the initial protection or the total amount of pages committed in the region. \\
+% CPU doesn't NECESSARILY care about the information
+On windows 7 (along with Vista and 2008 Server) each node can have one of three different types (short, regular and long). Each type build on top of the previous one, by adding additional members to the structure. 
+
+
+
+
+
 
 
 
