@@ -1,4 +1,4 @@
-﻿%\documentclass{DIKU-article}[2006/05/09]
+%\documentclass{DIKU-article}[2006/05/09]
 \documentclass[a4paper]{article}
 
 %% Language and font encodings
@@ -21,16 +21,14 @@
 
 \subsection*{Abstract}
 %
-In this report I will look at processes running on a windows system and how you might detect potential malicious ones that are running. \\
+In this report I will look at processes running on a windows system and how you might detect potential malicious ones that are running. \\ \\
 %
-In the first part of the report I’m going to start of describing the way processes are structured on a windows system. Afterwards I’ll focus more on the Virtual Address Descriptors (VAD) part and how this can be used to detect processes that are trying to hide themselves. \\
+In the first part of the report I’m going to start of describing the way processes are structured on a windows system. Afterwards I’ll focus more on the Virtual Address Descriptors (VAD) part and how this can be used to detect processes that are trying to hide themselves. \\ \\
 %
 % Further description? \\
 %
-For the second part I’ll be looking at different setups of windows 7 (32 bit) running on virtual machines. I’ll start off by looking at a clean installation running applications that you would normally see on a working PC. Then I’m going to investigate the other machine which will have been infected with some malicious process, using the (things) described in the first part. \\
-%
-% Describe results \\
-% 
+For the second part I'll be looking at different setups of windows 7 (32 bit) running on virtual machines. Both will be running application that you would normally see on a working PC, but one of them will also have been infected with some malware. I'll then show how to use the information described in the previous part to find it. \\\\
+% SPECULATION: By investigating the VAD trees i managed to find hidden malware on the system, which was then dealt with. 
 
 
 
@@ -52,32 +50,150 @@ One problem with this member (and other parts) is that operating system does not
 %
 \texttt{\_MM\_AVL\_TABLE} member structure \texttt{VadRoot} points to the root node in the VAD tree, which I will describe in greater details in the next section. The main reason for focusing on this member is that unlike \texttt{ActiveProcessLinks} it cannot be manipulated to hide processes. \\
 
-
+\newpage
 \section{VAD}
-
-% Looking at the structure type of the VAD tree, you can derive the purpose of the memory range.
-% win 7 64 bit. short, regular and long. 199-201. short doesn't have a subsection so can't contain file. Likely that injected code will use a short nodes since it doesn't need a file on the disk.
-
-% The "Tag" member can be used for this. It has a negative offset, which points to the "PoolTag" member of the "_POOL_HEADER". This exists in memory directly before the node. More in chapter 5.
-
-% the u_ members of the 3 different NODE structures are flags that contains characteristics about the memory range.
-% CommitCharge - how many pages are commited in the region of the VAD note.
-% MemCommit - Was memory commited right away or reserved? Historically malware commits all pages up front.
-% Protection - what acces is allowed for the memory region. Execute, read, write, no access, copy (?). ONLY INITIAL PROTECTION, so can be changed later
-% PrivateMemory - control bit that tells whether data in the region can be shared or inherited. If this is set the region cannot contain the following: Mapped files, named shared memory or copy-on-write DLLs (?).
+% As with other kernel data structures, the VAD tree can be altered by any code running in ring 0. This means that Direct Kernel Object manipulation (DKOM) attacks can be carried out to unlink VAD nodes from the tree and effectively hide them from forensic techniques that rely on this data structure. 
+% At the moment, the VAD tree is only available in processes that are still running; the Windows kernel appears to zero out the pointer to the VAD root when the process exits.
 
 % VAD intro
-% VAD tags
-% VAD flags
-
-As described earlier the VAD tree is used to describe the layout of a process' memory space. This contains the executable of the process, the list of DLLs/shared libraries, the stacks, heaps, and regions containing a wide variety of data such as user input and data structures relevant to the application (such as internet history logs). \\
-The VAD tree is a self balancing binary tree, where each node represents a range in process memory. The operating system is responsible for creating and maintaining the VAD tree of a process. Because of this the OS is able to add data/information that isn't important to the CPU, such as the names of memory-mapped files, the initial protection or the total amount of pages committed in the region. \\
+As described earlier the VAD tree is used to describe the layout of a process' memory space. This contains the executable of the process, the list of DLLs/shared libraries, the stacks, heaps, and regions containing a wide variety of data such as user input and data structures relevant to the application (such as internet history logs). \\ \\
+The VAD tree is a self balancing binary tree, where each node represents a range in process memory. The operating system is responsible for creating and maintaining the VAD tree of a process. Because of this the OS is able to add data/information that isn't important to the CPU, such as the names of memory-mapped files, the initial protection or the total amount of pages committed in the region. \\ \\
 % CPU doesn't NECESSARILY care about the information
-On windows 7 (along with Vista and 2008 Server) each node can have one of three different types (short, regular and long). Each type build on top of the previous one, by adding additional members to the structure. 
+On windows 7 (along with Vista and 2008 Server) each node can have one of three different types: short, regular or long. With each type building on top of the previous one, by adding additional members to the structure. So by looking at the type of nodes in the VAD tree we can derive what is stored in the corresponding memory regions. \\
+% LeftChild and RightChild - obvious
+% StartingVpn and EndingVpn - page numbers used to derive the first and last pages in the target process' virtual memory. Multiply the page number by the size of the page.
+% PushLock - ???
+As an example the "short" node does not have a "subsection" member, which is required to store a mapped file. This also means that a "short" node is prime for injected shell code, since it doesn't need to exist on the hard drive. Using this knowledge we can perform our search for malware more efficiently. \\ \\
+% describe nodes in more detail ?
+% VAD tags
+% The "Tag" member can be used for this. It has a negative offset, which points to the "PoolTag" member of the "_POOL_HEADER". This exists in memory directly before the node. More in chapter 5.
+%
+In order to distinguish between the different types of nodes in a VAD tree we have to look at the \texttt{tag} field of the structure. This member points to memory directly before the node, which contains the \texttt{\_POLL\_HEADER} structure. Here we want to access the \texttt{PoolTag} member. This value indicates if the node we're looking at is either of the type SHORT or LONG. If the tag have the value VadS or VadF we're looking at a SHORT. The tags Vad, Vadl, Vadm represents a LONG node. \\ \\
+% What about "normal" node ???
+% VAD flags
+Each of node type also contains a set of flags (embedded/defined by the members: u, u1, u2 and so on), with the number of flags depending on the size. Looking at the flags structure we can collect more information about a node. \\
+We can get the amount of pages that was committed by looking at the \texttt{CommitCharge} member. \\
+\texttt{MemCommit} can tell us if the memory was committed right away or if it was just reserved. Code injecting malware usually commits all pages up front. \\\\
+% When there is no CommitCharge, then it means that memory has only been reserved but not paired with physical addresses.
+The \texttt{Protection} member, decides what can be done with the memory of the region. This can be things such as reading, writing, executing, copy-on-write or disable all access to the memory. \\
+% expand on this ?
+The main problem with this field is that it only shows the initial protection value. This means that it can be changed later, thus contradicting the initial value, but it won't show the new value. This is because the member is tied to the whole memory range, which may contain multiple pages. Thus we cannot use the value of this field to filter our search for malicious activity. \\
+The \texttt{PrivateMemory} member is a control bit that tells us whether a committed region can be shared with or inherited by other processes. If this bit is set it means that the region cannot contain mapped files, named shared memory or copy-on-write DLLs.
 
 
 
 
+% https://media.blackhat.com/bh-dc-11/Mandt/BlackHat_DC_2011_Mandt_kernelpool-wp.pdf
+
+
+% Memory acquisition
+% Tools
+% VM vs Real
+% Preserve data
+
+
+% For this case I'm looking at the memory of a virtual machine. There are several factors that are quite different from a real world scenario, where we are investigating actual/real PCs. The main one being that the forensics part is being done on the host, as opposed to doing it on a PC dedicated to this, which is the ideal solution. Acquiring memory is usually done using some software tool (wide array to chose from). It can be done locally, through an external media like an USB or by remote acquisition over the network. Since the host OS is used to analyse the memory content of the VM in this case, we can use the hypervisor (VirtualBox) to acquire the data.
+% Some virtual machines will automatically save a full memory dump to the disk, when the system is suspended or paused, but this is not the case for VirtualBox. So in order to acquire the memory I start the machine in debug mode (using the command: VirtualBox --dbg --startvm "VMname") and use the following command: .pgmphystofile test.raw. This creates a raw memory dump, that I can analyse by using volatility.
+
+
+
+% Analysis
+% Clean
+% Infected - detected through "normal" means
+% Infected - detected using VAD tree
+
+
+
+% Memory acquisition form VirtualBox
+% start VB in debug mode
+% .pgmphystofile "filename" - .pgmphystofile test.raw
+
+
+
+% Once the memory dump has been obtained I use the following command: volatility_2.6.exe -f test2.raw --profile=Win7SP1x86 pslist. This shows me a list of processes and some of the members contained in the \texttt{\_EPROCESS} structure. In the first column we have the first 14 characters of the process name. In the next ew have the unique ID of each process, and the column afterwards contains the ID of the process that spawned it (parent). We can see the number of handles and threads. The last two columns show the \texttt{CreateTime} and \texttt{ExitTime} (empty) respectively.
+% Why is ExitTime empty ????
+
+
+
+
+% Looking at the image we can see that plenty of processes are currently running. 
+% The majority of the processes are critical to the system, and should be expected on every machine with the same or similar operating systems. Below is a short description for most of them.
+% Some can have multiple instances running and others should only have 1. They should all be located in the system32 directory.
+
+% Idle - a container that the kernel uses to charge CPU time for idle threads (not present in the generated list)
+
+% System is not a real process, it does not have an executable on disk. It is the standard home for threads that run in kernel mode. It does have a Process ID (PID) which is always 4, and it is the owner of any sockets or handles to files that are opened by kernel modules.
+
+% Csrss is a client/server runtime subsystem. It assists with the creation and deletion of processes and threads. This process maintains a private list of objects that can be used to cross-reference with other sources. Each session receives a dedicated copy, so multiple CSRSS processes are to be expected. Due to this, malware might attempt to blend in by exploiting using a similar name. The real one is located in the system32 directory.
+% Described further in chapter 12.
+
+% Services manages Windows services and maintain a list of them in a private memory space. There should only be one instance of this process running on the system, and it should also be the parent of all svchost.exe, along with spoolsv.exe and SearchIndexer.exe.
+
+% There will be several svchost processes running at the same time. These provides containers for DLLs that implement services. Just like csrss malware may also try to use names resembling the legitimate process, in order to make detection more difficult. The real executable is located in the system32 directory.
+
+% The local security authority subsystem (lsass) process' task is to enforce security policy, verify passwords and create access tokens. The private memory space of this process contains plaintext password hashes. This means that it is a prime target for code injection. There should only ever be a single instance running (located in system32). On windows 7 the PPID of this should be "wininit.exe".
+
+
+% Winlogon is the process that presents the interactive logon prompt, initiates the screen saver, helps load user profiles and responds to Secure Attention Sequences (SAS), such as CTRL + ALT + DEL.
+%
+% This process also monitors files and directories for changes on systems that implement Windoes File Protection (WFP). Executable located in system32 dir. RESEARCH MORE ???
+
+
+% A system will have one Windows Explorer process (explorer.exe) for each user that is logged in. It handles user interaction with the system, like GUI-based navigation of folders, presenting the start menu, and more. This process also have access to documents that the user opens, credentials used to log in to FTP sites via Windows explorer, and other sensitive data.
+
+
+% Smss is the session manager, that creates sessions to isolate OS services from various users who may log on via the console or Remote Desktop Protocol (RDP). It is the first real user-mode process that starts during the boot sequence.
+% Described further in chapter 14.
+
+
+
+% Now that we know what processes we expect to see, we can compare to the results of the memory analysis.
+% We can see multiple csrss.exe running.
+% There is one instance of services.exe running with the PID of 424. The PPID is equal to 336, which is the wininit.exe as it is supposed to be.
+% Plenty svchost.exe are running. They all have the PPID of 424 (services.exe), which is also the case for spoolsv.exe and SearchIndexer.exe. That is also the expected value.
+% We have one lsass.exe running, with a PPID of 336 (wininit.exe). This is also what we expected to see.
+% So every process that is critical to the system is behaving as intended when examining the process list.
+
+
+
+
+
+
+% Along with these we also have a few other non-critical processes related to windows. 
+% other
+% taskhost.exe - DLL related (like svchost)
+% lsm.exe - local session manager. Manages connections related to the terminal server on the hosted machine.
+% sppsvc.exe - This Windows service enables the download, installation and enforcement of digital licenses for Windows and Windows applications. (Trial version of windows causes this?)
+% dwm.exe - Desktop Window Manager (dwm.exe) is a compositing window manager that renders all those pretty effects in Windows: transparent windows, live taskbar thumbnails, Flip3D, and even high resolution monitor support. Instead of applications drawing their displays directly to your screen, applications write the picture of their window to a specific place in memory. Windows then creates one “composite” view of all the windows on the screen before sending it to your monitor. Because Windows is compositing and displaying the contents of each window, it can add effects like transparency and window animations when layering the windows for display.
+% wmpnetwk.exe - This where wmpnetwk.exe comes in, it literally is the service that “shares Windows Media Player libraries to other networked players sand media devices using Universal Plug and Play.”  The only downside is that the process runs 24/7 regardless of if you are actually using it, and in doing so uses up a chunk of system resources. non-essential
+% taskeng.exe
+% wlms.exe (not VM ??)
+% VmiPrvSE.exe - In other words, without WmiPrvSE, applications in Windows would be very difficult to manage as it’s a host that allows all of the necessary management services to operate. Users and administrators alike would also not likely receive notifications when errors did occur. A look through Process Explorer shows it as a child of svchost.exe.
+
+
+
+% Now since this system is a virtual machine, there are also several processes that wouldn't normally appear on a real work PC.
+% VM processes(?)
+% VBoxService.ex
+% vmicsvc.exe (multiple)
+% VBoxTray.exe
+
+
+
+
+% Finally we can see some processes that the user has started, such as firefox and notepad. Looking at the first instance of firefox.exe (and notepad.exe), we can see that the parent process ID (PPID) match the process ID (PID) of explorer.exe (2156) while the remaining three browser processes, have been spawned by the first firefox process (976). 
+
+% armsvc.exe - component of Adobe Acrobat. non-essential.
+
+
+
+
+
+% Volatility command page 60
+% volatility_2.6.exe -f test2.raw --profile=Win7SP1x86 pslist
+
+
+% 
 
 
 
